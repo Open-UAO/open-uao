@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  openuao:
+    container_name: openuao
+    image: ghcr.io/open-uao/openuao:latest
+    build: .
+    restart: unless-stopped
+    ports:
+      - 45080:80
+    environment:
+      VERSION: v1.0.0
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: openuao
+      REDIS_HOST: cache
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_SERVER_PASSWORD}
+      CLICOLOR_FORCE: 1
+    depends_on:
+      cache:
+        condition: service_started
+      db:
+        condition: service_healthy
+    networks:
+      - openuao
+  
+  cache:
+    container_name: openuao-cache
+    image: redis:7
+    restart: unless-stopped
+    command: redis-server --save 20 1 --loglevel warning --requirepass ${REDIS_SERVER_PASSWORD}
+    volumes:
+      - openuao-cache:/data:rw
+    networks: 
+      - openuao
+
+  db:
+    container_name: openuao-db
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=openuao
+      - PGDATA=/data/pgdata
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 15s
+      retries: 5
+    volumes: 
+      - openuao-db:/data/pgdata
+      - ./init.sql:/docker-entrypoint-initdb.d/create_tables.sql
+    networks: 
+      - openuao
+
+  ############
+  # SERVICES #
+  ############
+  dotgit-module:
+    container_name: openuao-dotgit
+    build: ../Modules/openuao-DotGit
+    restart: unless-stopped
+    depends_on:
+      openuao:
+        condition: service_healthy
+    networks: 
+      - openuao
+  # sudomy-service:
+  #   container_name: openuao-sudomy
+  #   restart: unless_stopped
+  # dsdtore-service:
+  #   container_name: openuao-dsstore
+  #   restart: unless_stopped
+
+volumes:
+  openuao-cache:
+  openuao-db:
+
+networks: 
+  openuao:
+    ipam:
+      driver: default
+      config:
+        - subnet: "10.0.0.0/8"
